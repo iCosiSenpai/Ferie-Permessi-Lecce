@@ -359,7 +359,7 @@ async def confirm_permesso(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 # --- Richieste Attive ---
 
 async def show_my_requests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Mostra all'utente le sue richieste di ferie e permessi."""
+    """Mostra all'utente le sue richieste di ferie e permessi, con possibilità di cancellarle."""
     user = update.effective_user
     user_requests = [
         (rid, r) for rid, r in active_requests.items() if r['user_id'] == user.id
@@ -371,19 +371,25 @@ async def show_my_requests(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         )
         return
 
-    msg = "📄 *Le tue richieste:*\n"
     for rid, r in user_requests:
         if r['request_type'].lower() == 'ferie':
-            msg += (
-                f"\n🆔 {rid} | *Ferie* | {r['start_date']} → {r['end_date']}\n"
+            text = (
+                f"🆔 {rid} | *Ferie* | {r['start_date']} → {r['end_date']}\n"
                 f"Stato: _{r['status']}_"
             )
         else:
-            msg += (
-                f"\n🆔 {rid} | *Permesso* | {r['date']} ({r['hours_description']})\n"
+            text = (
+                f"🆔 {rid} | *Permesso* | {r['date']} ({r['hours_description']})\n"
                 f"Stato: _{r['status']}_"
             )
-    await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=get_main_keyboard())
+        # Mostra il pulsante "Cancella" solo se la richiesta è ancora "in attesa"
+        if r['status'] == 'in attesa':
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("❌ Cancella", callback_data=f"delete_{rid}")]
+            ])
+            await update.message.reply_text(text, parse_mode="Markdown", reply_markup=keyboard)
+        else:
+            await update.message.reply_text(text, parse_mode="Markdown", reply_markup=get_main_keyboard())
 
 # --- Gestione Azioni Manager (Approvazione/Rifiuto) ---
 async def manager_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -568,6 +574,7 @@ def main() -> None:
     application.add_handler(conv_handler_permesso)
     application.add_handler(CallbackQueryHandler(manager_action, pattern="^(approve_|deny_)"))
     application.add_handler(MessageHandler(filters.Regex("^📄 Le mie richieste$"), show_my_requests))
+    application.add_handler(CallbackQueryHandler(delete_request, pattern="^delete_"))
     
     # Handler per messaggi non riconosciuti (deve essere l'ultimo)
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_unknown_message))
