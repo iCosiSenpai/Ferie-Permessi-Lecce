@@ -1,11 +1,20 @@
 import logging
+from pathlib import Path
 from dotenv import load_dotenv
 import os
+
+env_path = Path(__file__).parent / ".env"
+print("Env path:", env_path.resolve())
+load_dotenv(dotenv_path=env_path)
+
+# verifica subito dopo
+print("BOT_TOKEN:", os.getenv("BOT_TOKEN"))
+
 load_dotenv()  # carica tutte le variabili da .env
-print("ENV BOT_TOKEN:", os.getenv("BOT_TOKEN"))
-print("ENV DATA_DIR:", os.getenv("DATA_DIR"))
-print("ENV ENABLE_WEB_SERVER:", os.getenv("ENABLE_WEB_SERVER"))
-print("ENV WEB_PORT:", os.getenv("WEB_PORT"))
+TOKEN       = os.getenv("BOT_TOKEN")
+DATA_DIR    = os.getenv("DATA_DIR")
+ENABLE_WEB  = os.getenv("ENABLE_WEB_SERVER") == "true"
+WEB_PORT    = int(os.getenv("WEB_PORT", 8080))
 import uuid
 import json
 from datetime import datetime
