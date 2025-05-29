@@ -68,7 +68,7 @@ except (TypeError, ValueError) as e:
 # Configurazione percorsi e porte
 DATA_DIR = os.environ.get('DATA_DIR', '/share/Container/telegram-bot-data')
 WEB_PORT = int(os.environ.get('WEB_PORT', '5000'))
-ENABLE_WEB_SERVER = os.environ.get('ENABLE_WEB_SERVER', 'true').lower() == 'true'
+ENABLE_WEB_SERVER = os.environ.get('ENABLE_WEB_SERVER', 'false').lower() == 'false'
 
 # Crea la directory dei dati se non esiste
 Path(DATA_DIR).mkdir(parents=True, exist_ok=True)
