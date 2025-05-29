@@ -176,6 +176,7 @@ def get_main_keyboard():
     """Restituisce la tastiera principale del bot."""
     return ReplyKeyboardMarkup([
         [KeyboardButton("🏖️ Chiedi Ferie"), KeyboardButton("📝 Chiedi Permesso")],
+        [KeyboardButton("📄 Le mie richieste")],
         [KeyboardButton("ℹ️ Aiuto")]
     ], resize_keyboard=True)
 
@@ -537,6 +538,7 @@ def main() -> None:
     application.add_handler(conv_handler_ferie)
     application.add_handler(conv_handler_permesso)
     application.add_handler(CallbackQueryHandler(manager_action, pattern="^(approve_|deny_)"))
+    application.add_handler(MessageHandler(filters.Regex("^📄 Le mie richieste$"), show_my_requests))
     
     # Handler per messaggi non riconosciuti (deve essere l'ultimo)
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_unknown_message))
