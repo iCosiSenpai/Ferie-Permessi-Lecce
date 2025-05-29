@@ -3,6 +3,7 @@ import os
 import uuid
 import json
 from datetime import datetime
+from pathlib import Path
 
 from flask import Flask
 from threading import Thread
@@ -24,17 +25,63 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Carica le variabili d'ambiente
+# --- Caricamento variabili d'ambiente con supporto per .env ---
+def load_env_file():
+    """Carica variabili d'ambiente da file .env se presente"""
+    env_file = Path('.env')
+    if env_file.exists():
+        logger.info("Caricamento file .env trovato")
+        try:
+            with open(env_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        key, value = line.split('=', 1)
+                        key = key.strip()
+                        value = value.strip().strip('"').strip("'")
+                        if key not in os.environ:  # Non sovrascrivere variabili già impostate
+                            os.environ[key] = value
+            logger.info("File .env caricato con successo")
+        except Exception as e:
+            logger.error(f"Errore nel caricamento del file .env: {e}")
+    else:
+        logger.info("File .env non trovato, uso solo variabili d'ambiente di sistema")
+
+# Carica il file .env se presente
+load_env_file()
+
+# Carica le variabili d'ambiente con valori di default e validazione
 BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
+if not BOT_TOKEN:
+    logger.critical("❌ TELEGRAM_BOT_TOKEN non trovato! Impostare questa variabile è obbligatorio.")
+    exit(1)
+
 try:
-    MANAGER_CHAT_ID = int(os.environ.get('MANAGER_CHAT_ID'))
-except (TypeError, ValueError):
-    logger.error("MANAGER_CHAT_ID non trovato o non è un numero valido nelle variabili d'ambiente!")
+    MANAGER_CHAT_ID = int(os.environ.get('MANAGER_CHAT_ID', '0'))
+    if MANAGER_CHAT_ID == 0:
+        raise ValueError("MANAGER_CHAT_ID non impostato")
+except (TypeError, ValueError) as e:
+    logger.error(f"❌ MANAGER_CHAT_ID non trovato o non è un numero valido: {e}")
+    logger.error("Il bot continuerà ma le notifiche al manager non funzioneranno!")
     MANAGER_CHAT_ID = None
 
-# Percorso del file dati (configurabile)
-DATA_DIR = os.environ.get('DATA_DIR', '.')
+# Configurazione percorsi e porte
+DATA_DIR = os.environ.get('DATA_DIR', '/share/Container/telegram-bot-data')
+WEB_PORT = int(os.environ.get('WEB_PORT', '8080'))
+ENABLE_WEB_SERVER = os.environ.get('ENABLE_WEB_SERVER', 'true').lower() == 'true'
+
+# Crea la directory dei dati se non esiste
+Path(DATA_DIR).mkdir(parents=True, exist_ok=True)
 DB_FILE = os.path.join(DATA_DIR, "requests_data.json")
+
+logger.info(f"📁 Directory dati: {DATA_DIR}")
+logger.info(f"💽 File database: {DB_FILE}")
+logger.info(f"🌐 Server web: {'Abilitato' if ENABLE_WEB_SERVER else 'Disabilitato'}")
+logger.info(f"🔌 Porta web: {WEB_PORT}")
+
+# Stati per i ConversationHandler
+ASK_START_DATE_FERIE, ASK_END_DATE_FERIE, ASK_REASON_FERIE, CONFIRM_FERIE = range(4)
+ASK_DATE_PERMESSO, ASK_HOURS_PERMESSO, ASK_REASON_PERMESSO, CONFIRM_PERMESSO = range(4, 8)
 
 # --- Gestione Dati Richieste (con file JSON per persistenza) ---
 def load_requests():
@@ -42,25 +89,42 @@ def load_requests():
     try:
         with open(DB_FILE, "r", encoding='utf-8') as f:
             data = json.load(f)
+            logger.info(f"📊 Caricate {len(data)} richieste dal database")
             return data
     except FileNotFoundError:
-        logger.info(f"{DB_FILE} non trovato, ne verrà creato uno nuovo.")
+        logger.info(f"📄 {DB_FILE} non trovato, ne verrà creato uno nuovo.")
         return {}
     except json.JSONDecodeError:
-        logger.error(f"Errore nel decodificare {DB_FILE}. Verrà restituito un dizionario vuoto.")
+        logger.error(f"❌ Errore nel decodificare {DB_FILE}. Verrà restituito un dizionario vuoto.")
         return {}
     except Exception as e:
-        logger.error(f"Errore imprevisto nel caricamento dei dati: {e}")
+        logger.error(f"❌ Errore imprevisto nel caricamento dei dati: {e}")
         return {}
 
 def save_requests(requests_data):
     """Salva le richieste in un file JSON."""
     try:
+        # Backup del file esistente
+        if os.path.exists(DB_FILE):
+            backup_file = f"{DB_FILE}.backup"
+            os.rename(DB_FILE, backup_file)
+            
         with open(DB_FILE, "w", encoding='utf-8') as f:
             json.dump(requests_data, f, indent=4, ensure_ascii=False)
-        logger.info("Dati salvati correttamente")
+        logger.info(f"💾 Dati salvati correttamente ({len(requests_data)} richieste)")
+        
+        # Rimuovi backup se tutto è andato bene
+        backup_file = f"{DB_FILE}.backup"
+        if os.path.exists(backup_file):
+            os.remove(backup_file)
+            
     except IOError as e:
-        logger.error(f"Errore durante il salvataggio dei dati su {DB_FILE}: {e}")
+        logger.error(f"❌ Errore durante il salvataggio dei dati su {DB_FILE}: {e}")
+        # Ripristina backup se esiste
+        backup_file = f"{DB_FILE}.backup"
+        if os.path.exists(backup_file):
+            os.rename(backup_file, DB_FILE)
+            logger.info("🔄 Ripristinato backup del database")
 
 # Dizionario per memorizzare le richieste attive (caricate all'avvio)
 active_requests = load_requests()
@@ -73,7 +137,7 @@ def generate_request_id():
 async def send_to_manager(context: ContextTypes.DEFAULT_TYPE, user_name: str, user_id: int, request_type: str, details: str, request_id: str):
     """Invia la notifica della richiesta allo store manager."""
     if not MANAGER_CHAT_ID:
-        logger.error("MANAGER_CHAT_ID non configurato. Impossibile inviare notifica.")
+        logger.error("❌ MANAGER_CHAT_ID non configurato. Impossibile inviare notifica.")
         await context.bot.send_message(
             chat_id=user_id,
             text="⚠️ C'è stato un problema nell'inoltrare la tua richiesta al manager. Per favore, contatta l'amministratore del bot."
@@ -96,9 +160,9 @@ async def send_to_manager(context: ContextTypes.DEFAULT_TYPE, user_name: str, us
         await context.bot.send_message(
             chat_id=MANAGER_CHAT_ID, text=message_text, reply_markup=reply_markup
         )
-        logger.info(f"Notifica inviata al manager per la richiesta {request_id}")
+        logger.info(f"📨 Notifica inviata al manager per la richiesta {request_id}")
     except Exception as e:
-        logger.error(f"Errore nell'invio della notifica al manager: {e}")
+        logger.error(f"❌ Errore nell'invio della notifica al manager: {e}")
         await context.bot.send_message(
             chat_id=user_id,
             text="⚠️ Si è verificato un errore tecnico nell'invio della notifica al manager. Riprova più tardi o contatta l'amministrazione."
@@ -296,7 +360,7 @@ async def manager_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     try:
         action, request_id = query.data.split("_", 1)
     except ValueError:
-        logger.error(f"Formato callback_data non valido: {query.data}")
+        logger.error(f"❌ Formato callback_data non valido: {query.data}")
         await query.edit_message_text(text=f"{query.message.text}\n\n⚠️ Errore nel formato del comando.")
         return
 
@@ -321,7 +385,7 @@ async def manager_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     text=f"🎉 Buone notizie! La tua richiesta di {request_type.lower()} (ID: {request_id}) è stata APPROVATA!"
                 )
             except Exception as e:
-                logger.error(f"Errore nell'invio del messaggio di approvazione all'utente {original_user_id}: {e}")
+                logger.error(f"❌ Errore nell'invio del messaggio di approvazione all'utente {original_user_id}: {e}")
                 
         elif action == "deny":
             active_requests[request_id]['status'] = 'rifiutata'
@@ -333,24 +397,24 @@ async def manager_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     text=f"😔 La tua richiesta di {request_type.lower()} (ID: {request_id}) è stata RIFIUTATA."
                 )
             except Exception as e:
-                logger.error(f"Errore nell'invio del messaggio di rifiuto all'utente {original_user_id}: {e}")
+                logger.error(f"❌ Errore nell'invio del messaggio di rifiuto all'utente {original_user_id}: {e}")
         else:
             await query.edit_message_text(text=f"{query.message.text}\n\n⚠️ Azione sconosciuta.")
-            logger.warning(f"Azione sconosciuta '{action}' per request_id '{request_id}'")
+            logger.warning(f"⚠️ Azione sconosciuta '{action}' per request_id '{request_id}'")
             return
 
         save_requests(active_requests)
         await query.edit_message_text(text=f"{query.message.text}\n\n--- ESITO: {new_text.split(' da ')[0].split(') di ')[0]}) ---")
-        logger.info(f"Azione '{action}' eseguita per la richiesta {request_id} da parte del manager.")
+        logger.info(f"✅ Azione '{action}' eseguita per la richiesta {request_id} da parte del manager.")
     else:
         await query.edit_message_text(text=f"{query.message.text}\n\n⚠️ Errore: Richiesta ID ({request_id}) non trovata o già processata.")
-        logger.warning(f"Richiesta ID {request_id} non trovata durante l'azione del manager.")
+        logger.warning(f"⚠️ Richiesta ID {request_id} non trovata durante l'azione del manager.")
 
 # --- Annullamento Conversazione ---
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Annulla la conversazione corrente."""
     user = update.message.from_user
-    logger.info("L'utente %s ha annullato la conversazione.", user.first_name)
+    logger.info("🔄 L'utente %s ha annullato la conversazione.", user.first_name)
     await update.message.reply_text(
         "Operazione annullata. Dimmi pure se hai bisogno di altro!",
         reply_markup=get_main_keyboard()
@@ -366,51 +430,74 @@ async def handle_unknown_message(update: Update, context: ContextTypes.DEFAULT_T
         reply_markup=get_main_keyboard()
     )
 
-# --- Server Web Opzionale per Monitoraggio ---
-app = Flask('')
+# --- Server Web per Monitoraggio ---
+app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Bot richieste ferie/permessi è attivo! 👍"
+    return f"""
+    <h1>🤖 Bot Richieste Ferie/Permessi</h1>
+    <p><strong>Status:</strong> 🟢 Attivo</p>
+    <p><strong>Richieste totali:</strong> {len(active_requests)}</p>
+    <p><strong>Directory dati:</strong> {DATA_DIR}</p>
+    <p><strong>Manager configurato:</strong> {'✅ Sì' if MANAGER_CHAT_ID else '❌ No'}</p>
+    <p><a href="/health">Health Check</a> | <a href="/stats">Statistiche</a></p>
+    """
 
 @app.route('/health')
 def health_check():
-    return {"status": "healthy", "timestamp": datetime.now().isoformat(), "active_requests": len(active_requests)}
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "active_requests": len(active_requests),
+        "manager_configured": MANAGER_CHAT_ID is not None,
+        "data_dir": DATA_DIR
+    }
 
 @app.route('/stats')
 def stats():
-    """Endpoint per statistiche basic del bot."""
+    """Endpoint per statistiche del bot."""
     stats_data = {
         "total_requests": len(active_requests),
         "pending": len([r for r in active_requests.values() if r['status'] == 'in attesa']),
         "approved": len([r for r in active_requests.values() if r['status'] == 'approvata']),
-        "rejected": len([r for r in active_requests.values() if r['status'] == 'rifiutata'])
+        "rejected": len([r for r in active_requests.values() if r['status'] == 'rifiutata']),
+        "data_directory": DATA_DIR,
+        "database_file": DB_FILE,
+        "manager_configured": MANAGER_CHAT_ID is not None
     }
     return stats_data
 
 def run_flask():
-    # Usa porta configurabile per QNAP
-    port = int(os.environ.get('WEB_PORT', 8080))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    """Avvia il server Flask."""
+    try:
+        app.run(host='0.0.0.0', port=WEB_PORT, debug=False)
+    except Exception as e:
+        logger.error(f"❌ Errore nell'avvio del server web: {e}")
 
 def start_web_server():
-    """Avvia il server web opzionale per monitoraggio (facoltativo su QNAP)."""
-    if os.environ.get('ENABLE_WEB_SERVER', 'false').lower() == 'true':
+    """Avvia il server web opzionale per monitoraggio."""
+    if ENABLE_WEB_SERVER:
         t = Thread(target=run_flask)
         t.daemon = True
         t.start()
-        logger.info("Server web di monitoraggio avviato")
+        logger.info(f"🌐 Server web di monitoraggio avviato su porta {WEB_PORT}")
     else:
-        logger.info("Server web disabilitato (usa ENABLE_WEB_SERVER=true per abilitarlo)")
+        logger.info("🌐 Server web disabilitato")
+
+# Funzione keep_alive rimossa perché non necessaria su QNAP
 
 # --- Main ---
 def main() -> None:
     """Avvia il bot."""
+    logger.info("🚀 Avvio del bot Telegram per richieste ferie/permessi...")
+    
+    # Verifica configurazione
     if not BOT_TOKEN:
-        logger.critical("TELEGRAM_BOT_TOKEN non trovato nelle variabili d'ambiente! Il bot non può partire.")
+        logger.critical("❌ TELEGRAM_BOT_TOKEN non trovato! Il bot non può partire.")
         return
     if not MANAGER_CHAT_ID:
-        logger.warning("MANAGER_CHAT_ID non trovato o non valido! Le notifiche al manager non funzioneranno correttamente.")
+        logger.warning("⚠️ MANAGER_CHAT_ID non configurato! Le notifiche al manager non funzioneranno.")
 
     # Crea l'applicazione del bot
     application = Application.builder().token(BOT_TOKEN).build()
@@ -450,18 +537,9 @@ def main() -> None:
     # Handler per messaggi non riconosciuti (deve essere l'ultimo)
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_unknown_message))
 
-    # Avvia il server Flask per Replit
-    keep_alive()
-    logger.info("Servizio keep_alive avviato.")
+    # Avvia il server web se abilitato
+    start_web_server()
 
     # Avvia il bot
-    logger.info("Avvio del bot...")
-    try:
-        application.run_polling(drop_pending_updates=True)
-    except KeyboardInterrupt:
-        logger.info("Bot fermato dall'utente.")
-    except Exception as e:
-        logger.error(f"Errore durante l'esecuzione del bot: {e}")
-
-if __name__ == "__main__":
-    main()
+    logger.info("✅ Bot avviato con successo!")
+    try
