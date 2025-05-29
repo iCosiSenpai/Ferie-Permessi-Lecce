@@ -1,20 +1,5 @@
 import logging
-from pathlib import Path
-from dotenv import load_dotenv
 import os
-
-env_path = Path(__file__).parent / ".env"
-print("Env path:", env_path.resolve())
-load_dotenv(dotenv_path=env_path)
-
-# verifica subito dopo
-print("BOT_TOKEN:", os.getenv("BOT_TOKEN"))
-
-load_dotenv()  # carica tutte le variabili da .env
-TOKEN       = os.getenv("BOT_TOKEN")
-DATA_DIR    = os.getenv("DATA_DIR")
-ENABLE_WEB  = os.getenv("ENABLE_WEB_SERVER") == "true"
-WEB_PORT    = int(os.getenv("WEB_PORT", 8080))
 import uuid
 import json
 from datetime import datetime
@@ -39,7 +24,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Carica le variabili d'ambiente (TOKEN e MANAGER_ID)
+# Carica le variabili d'ambiente
 BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 try:
     MANAGER_CHAT_ID = int(os.environ.get('MANAGER_CHAT_ID'))
@@ -47,12 +32,9 @@ except (TypeError, ValueError):
     logger.error("MANAGER_CHAT_ID non trovato o non è un numero valido nelle variabili d'ambiente!")
     MANAGER_CHAT_ID = None
 
-# Stati per la ConversationHandler (gestione delle conversazioni a più passaggi)
-(ASK_START_DATE_FERIE, ASK_END_DATE_FERIE, ASK_REASON_FERIE, CONFIRM_FERIE,
- ASK_DATE_PERMESSO, ASK_HOURS_PERMESSO, ASK_REASON_PERMESSO, CONFIRM_PERMESSO) = range(8)
-
-# Nome del file per salvare i dati delle richieste
-DB_FILE = "requests_data.json"
+# Percorso del file dati (configurabile)
+DATA_DIR = os.environ.get('DATA_DIR', '.')
+DB_FILE = os.path.join(DATA_DIR, "requests_data.json")
 
 # --- Gestione Dati Richieste (con file JSON per persistenza) ---
 def load_requests():
@@ -384,7 +366,7 @@ async def handle_unknown_message(update: Update, context: ContextTypes.DEFAULT_T
         reply_markup=get_main_keyboard()
     )
 
-# --- Keep Alive per Replit (con Flask) ---
+# --- Server Web Opzionale per Monitoraggio ---
 app = Flask('')
 
 @app.route('/')
@@ -393,16 +375,33 @@ def home():
 
 @app.route('/health')
 def health_check():
-    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+    return {"status": "healthy", "timestamp": datetime.now().isoformat(), "active_requests": len(active_requests)}
+
+@app.route('/stats')
+def stats():
+    """Endpoint per statistiche basic del bot."""
+    stats_data = {
+        "total_requests": len(active_requests),
+        "pending": len([r for r in active_requests.values() if r['status'] == 'in attesa']),
+        "approved": len([r for r in active_requests.values() if r['status'] == 'approvata']),
+        "rejected": len([r for r in active_requests.values() if r['status'] == 'rifiutata'])
+    }
+    return stats_data
 
 def run_flask():
-    app.run(host='0.0.0.0', port=8080)
+    # Usa porta configurabile per QNAP
+    port = int(os.environ.get('WEB_PORT', 8080))
+    app.run(host='0.0.0.0', port=port, debug=False)
 
-def keep_alive():
-    """Avvia un server web Flask in un thread separato per mantenere attivo il Repl."""
-    t = Thread(target=run_flask)
-    t.daemon = True
-    t.start()
+def start_web_server():
+    """Avvia il server web opzionale per monitoraggio (facoltativo su QNAP)."""
+    if os.environ.get('ENABLE_WEB_SERVER', 'false').lower() == 'true':
+        t = Thread(target=run_flask)
+        t.daemon = True
+        t.start()
+        logger.info("Server web di monitoraggio avviato")
+    else:
+        logger.info("Server web disabilitato (usa ENABLE_WEB_SERVER=true per abilitarlo)")
 
 # --- Main ---
 def main() -> None:
