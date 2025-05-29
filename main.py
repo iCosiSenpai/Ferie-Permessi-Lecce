@@ -501,7 +501,7 @@ def main() -> None:
         logger.warning("⚠️ MANAGER_CHAT_ID non configurato! Le notifiche al manager non funzioneranno.")
 
     # Crea l'applicazione del bot
-    application = Application.builder().token(BOT_TOKEN).build()
+    application = ApplicationBuilder().token(BOT_TOKEN).build()
 
     # Handler per le richieste di ferie
     conv_handler_ferie = ConversationHandler(
