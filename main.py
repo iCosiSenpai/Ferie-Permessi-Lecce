@@ -185,8 +185,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Saluta l'utente e mostra i pulsanti per le richieste."""
     user = update.effective_user
     welcome_message = (
-        f"Ciao {user.first_name}! 👋 Sono il tuo assistente per le richieste di ferie e permessi.\n\n"
-        "Cosa vorresti fare?"
+        f"Weeee {user.first_name}! 👋 Hai bisogno di staccare la spina o hai degli impegni improrogabili? Chiedi e ti sarà dato bro.\n\n"
+        "Dimmi, che minchia vuoi?"
     )
     await update.message.reply_text(welcome_message, reply_markup=get_main_keyboard())
 
@@ -355,6 +355,35 @@ async def confirm_permesso(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         )
     context.user_data.clear()
     return ConversationHandler.END
+
+# --- Richieste Attive ---
+
+async def show_my_requests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Mostra all'utente le sue richieste di ferie e permessi."""
+    user = update.effective_user
+    user_requests = [
+        (rid, r) for rid, r in active_requests.items() if r['user_id'] == user.id
+    ]
+    if not user_requests:
+        await update.message.reply_text(
+            "Non hai richieste registrate.",
+            reply_markup=get_main_keyboard()
+        )
+        return
+
+    msg = "📄 *Le tue richieste:*\n"
+    for rid, r in user_requests:
+        if r['request_type'].lower() == 'ferie':
+            msg += (
+                f"\n🆔 {rid} | *Ferie* | {r['start_date']} → {r['end_date']}\n"
+                f"Stato: _{r['status']}_"
+            )
+        else:
+            msg += (
+                f"\n🆔 {rid} | *Permesso* | {r['date']} ({r['hours_description']})\n"
+                f"Stato: _{r['status']}_"
+            )
+    await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=get_main_keyboard())
 
 # --- Gestione Azioni Manager (Approvazione/Rifiuto) ---
 async def manager_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
