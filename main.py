@@ -542,3 +542,4 @@ def main() -> None:
 
     # Avvia il bot
     logger.info("✅ Bot avviato con successo!")
+    app.run_polling()
