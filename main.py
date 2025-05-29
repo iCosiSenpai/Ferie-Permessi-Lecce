@@ -33,9 +33,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Caricamento variabili d'ambiente
-BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
+BOT_TOKEN = os.environ.get('BOT_TOKEN')
 if not BOT_TOKEN:
-    logger.critical("❌ TELEGRAM_BOT_TOKEN non trovato! Impostare questa variabile è obbligatorio.")
+    logger.critical("❌ BOT_TOKEN non trovato! Impostare questa variabile è obbligatorio.")
     exit(1)
 
 try:
