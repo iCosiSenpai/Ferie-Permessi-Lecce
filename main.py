@@ -391,6 +391,39 @@ async def show_my_requests(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         else:
             await update.message.reply_text(text, parse_mode="Markdown", reply_markup=get_main_keyboard())
 
+# --- Gestione Cancellazione Richieste ---
+async def delete_request(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Gestisce la cancellazione di una richiesta da parte dell'utente."""
+    query = update.callback_query
+    await query.answer()
+
+    try:
+        _, request_id = query.data.split("_", 1)
+    except ValueError:
+        logger.error(f"❌ Formato callback_data non valido: {query.data}")
+        await query.edit_message_text(text=f"{query.message.text}\n\n⚠️ Errore nel formato del comando.")
+        return
+
+    if request_id in active_requests:
+        request = active_requests[request_id]
+        # Verifica che sia l'utente originale a cancellare
+        if query.from_user.id != request['user_id']:
+            await query.answer("⚠️ Non puoi cancellare le richieste di altri utenti.", show_alert=True)
+            return
+        
+        # Verifica che la richiesta sia ancora 'in attesa'
+        if request['status'] != 'in attesa':
+            await query.answer("⚠️ Puoi cancellare solo richieste in attesa.", show_alert=True)
+            return
+
+        del active_requests[request_id]
+        save_requests(active_requests)
+        await query.edit_message_text(text=f"{query.message.text}\n\n❌ Richiesta cancellata.")
+        logger.info(f"✅ Richiesta {request_id} cancellata dall'utente {query.from_user.id}")
+    else:
+        await query.edit_message_text(text=f"{query.message.text}\n\n⚠️ Richiesta non trovata.")
+        logger.warning(f"⚠️ Tentativo di cancellare una richiesta inesistente: {request_id}")
+
 # --- Gestione Azioni Manager (Approvazione/Rifiuto) ---
 async def manager_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Gestisce l'approvazione o il rifiuto da parte del manager."""
