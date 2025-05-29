@@ -213,13 +213,25 @@ async def start_ferie_request(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def ask_start_date_ferie(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Chiede la data di inizio delle ferie."""
-    context.user_data['start_date_ferie'] = update.message.text
+    text = update.message.text.strip()
+    try:
+        datetime.strptime(text, "%d/%m/%Y")
+    except ValueError:
+        await update.message.reply_text("❌ Cazzo ma una data la sai scrivere? Usa il formato GG/MM/AAAA (es: 25/12/2025).")
+        return ASK_START_DATE_FERIE
+    context.user_data['start_date_ferie'] = text
     await update.message.reply_text("🗓️ Quando vorresti terminare le ferie? (formato GG/MM/AAAA)")
     return ASK_END_DATE_FERIE
 
 async def ask_end_date_ferie(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Chiede la data di fine delle ferie e poi la motivazione."""
-    context.user_data['end_date_ferie'] = update.message.text
+    text = update.message.text.strip()
+    try:
+        datetime.strptime(text, "%d/%m/%Y")
+    except ValueError:
+        await update.message.reply_text("❌ Cazzo ma una data la sai scrivere? Usa il formato GG/MM/AAAA (es: 31/12/2025).")
+        return ASK_END_DATE_FERIE
+    context.user_data['end_date_ferie'] = text
     await update.message.reply_text("📝 Vuoi aggiungere una motivazione? (opzionale, scrivi 'no' se non serve)")
     return ASK_REASON_FERIE
 
@@ -289,7 +301,13 @@ async def start_permesso_request(update: Update, context: ContextTypes.DEFAULT_T
 
 async def ask_date_permesso(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Chiede la data del permesso."""
-    context.user_data['date_permesso'] = update.message.text
+    text = update.message.text.strip()
+    try:
+        datetime.strptime(text, "%d/%m/%Y")
+    except ValueError:
+        await update.message.reply_text("❌ Cazzo ma una data la sai scrivere? Usa il formato GG/MM/AAAA (es: 15/06/2025).")
+        return ASK_DATE_PERMESSO
+    context.user_data['date_permesso'] = text
     await update.message.reply_text("⏰ Indica le ore di permesso o una breve descrizione (es. 'dalle 9 alle 11', '2 ore al mattino', 'giornata intera per visita medica').")
     return ASK_HOURS_PERMESSO
 
