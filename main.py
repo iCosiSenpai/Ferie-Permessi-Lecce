@@ -90,6 +90,9 @@ def load_requests():
     try:
         with open(DB_FILE, "r", encoding='utf-8') as f:
             data = json.load(f)
+            if not isinstance(data, dict):
+                logger.warning(f"⚠️ Il database non è un dizionario, verrà inizializzato vuoto.")
+                return {}
             logger.info(f"📊 Caricate {len(data)} richieste dal database")
             return data
     except FileNotFoundError:
