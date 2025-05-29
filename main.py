@@ -30,7 +30,7 @@ try:
     MANAGER_CHAT_ID = int(os.environ.get('MANAGER_CHAT_ID'))
 except (TypeError, ValueError):
     logger.error("MANAGER_CHAT_ID non trovato o non è un numero valido nelle variabili d'ambiente!")
-    MANAGER_CHAT_ID = None # Gestisci questo caso, magari uscendo o avvisando
+    MANAGER_CHAT_ID = None
 
 # Stati per la ConversationHandler (gestione delle conversazioni a più passaggi)
 (ASK_START_DATE_FERIE, ASK_END_DATE_FERIE, ASK_REASON_FERIE, CONFIRM_FERIE,
@@ -43,10 +43,8 @@ DB_FILE = "requests_data.json"
 def load_requests():
     """Carica le richieste da un file JSON."""
     try:
-        with open(DB_FILE, "r") as f:
+        with open(DB_FILE, "r", encoding='utf-8') as f:
             data = json.load(f)
-            # Converti le chiavi stringa (ID richiesta) in ID effettivi se necessario
-            # Per ora, assumiamo che le chiavi siano già stringhe come generate da uuid.uuid4().hex
             return data
     except FileNotFoundError:
         logger.info(f"{DB_FILE} non trovato, ne verrà creato uno nuovo.")
@@ -54,12 +52,16 @@ def load_requests():
     except json.JSONDecodeError:
         logger.error(f"Errore nel decodificare {DB_FILE}. Verrà restituito un dizionario vuoto.")
         return {}
+    except Exception as e:
+        logger.error(f"Errore imprevisto nel caricamento dei dati: {e}")
+        return {}
 
 def save_requests(requests_data):
     """Salva le richieste in un file JSON."""
     try:
-        with open(DB_FILE, "w") as f:
-            json.dump(requests_data, f, indent=4)
+        with open(DB_FILE, "w", encoding='utf-8') as f:
+            json.dump(requests_data, f, indent=4, ensure_ascii=False)
+        logger.info("Dati salvati correttamente")
     except IOError as e:
         logger.error(f"Errore durante il salvataggio dei dati su {DB_FILE}: {e}")
 
@@ -69,13 +71,12 @@ active_requests = load_requests()
 # --- Funzioni Helper ---
 def generate_request_id():
     """Genera un ID univoco per la richiesta."""
-    return uuid.uuid4().hex[:8] # ID più corto per leggibilità
+    return uuid.uuid4().hex[:8]
 
 async def send_to_manager(context: ContextTypes.DEFAULT_TYPE, user_name: str, user_id: int, request_type: str, details: str, request_id: str):
     """Invia la notifica della richiesta allo store manager."""
     if not MANAGER_CHAT_ID:
         logger.error("MANAGER_CHAT_ID non configurato. Impossibile inviare notifica.")
-        # Potresti voler notificare anche l'utente che c'è un problema
         await context.bot.send_message(
             chat_id=user_id,
             text="⚠️ C'è stato un problema nell'inoltrare la tua richiesta al manager. Per favore, contatta l'amministratore del bot."
@@ -106,6 +107,13 @@ async def send_to_manager(context: ContextTypes.DEFAULT_TYPE, user_name: str, us
             text="⚠️ Si è verificato un errore tecnico nell'invio della notifica al manager. Riprova più tardi o contatta l'amministrazione."
         )
 
+def get_main_keyboard():
+    """Restituisce la tastiera principale del bot."""
+    return ReplyKeyboardMarkup([
+        [KeyboardButton("🏖️ Chiedi Ferie"), KeyboardButton("📝 Chiedi Permesso")],
+        [KeyboardButton("ℹ️ Aiuto")]
+    ], resize_keyboard=True)
+
 # --- Comandi Principali ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Saluta l'utente e mostra i pulsanti per le richieste."""
@@ -114,12 +122,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"Ciao {user.first_name}! 👋 Sono il tuo assistente per le richieste di ferie e permessi.\n\n"
         "Cosa vorresti fare?"
     )
-    keyboard = [
-        [KeyboardButton("🏖️ Chiedi Ferie"), KeyboardButton("📝 Chiedi Permesso")],
-        [KeyboardButton("ℹ️ Aiuto")]
-    ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
-    await update.message.reply_text(welcome_message, reply_markup=reply_markup)
+    await update.message.reply_text(welcome_message, reply_markup=get_main_keyboard())
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Mostra un messaggio di aiuto."""
@@ -160,10 +163,10 @@ async def ask_reason_ferie(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     context.user_data['reason_ferie'] = None if reason.lower() == 'no' else reason
 
     summary = (
-        f" Riepilogo richiesta FERIE:\n"
-        f"Dal: {context.user_data['start_date_ferie']}\n"
-        f"Al: {context.user_data['end_date_ferie']}\n"
-        f"Motivazione: {context.user_data['reason_ferie'] or 'Nessuna'}\n\n"
+        f"📋 Riepilogo richiesta FERIE:\n"
+        f"📅 Dal: {context.user_data['start_date_ferie']}\n"
+        f"📅 Al: {context.user_data['end_date_ferie']}\n"
+        f"💬 Motivazione: {context.user_data['reason_ferie'] or 'Nessuna'}\n\n"
         "Confermi l'invio? (Sì/No)"
     )
     keyboard = [[KeyboardButton("Sì 👍"), KeyboardButton("No 👎")]]
@@ -174,7 +177,7 @@ async def ask_reason_ferie(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 async def confirm_ferie(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Conferma e invia la richiesta di ferie."""
     user_response = update.message.text.lower()
-    if user_response == 'sì 👍' or user_response == 'sì' or user_response == 'si':
+    if user_response in ['sì 👍', 'sì', 'si']:
         user = update.effective_user
         request_id = generate_request_id()
         start_date = context.user_data['start_date_ferie']
@@ -183,7 +186,7 @@ async def confirm_ferie(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
         active_requests[request_id] = {
             'user_id': user.id,
-            'user_name': user.full_name or user.first_name, # user.full_name se disponibile
+            'user_name': user.full_name or user.first_name,
             'request_type': 'Ferie',
             'start_date': start_date,
             'end_date': end_date,
@@ -200,12 +203,12 @@ async def confirm_ferie(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         await send_to_manager(context, user.full_name or user.first_name, user.id, "Ferie", details, request_id)
         await update.message.reply_text(
             "✅ La tua richiesta di ferie è stata inviata con successo allo store manager!",
-            reply_markup=ReplyKeyboardMarkup([[KeyboardButton("🏖️ Chiedi Ferie"), KeyboardButton("📝 Chiedi Permesso")],[KeyboardButton("ℹ️ Aiuto")]], resize_keyboard=True) # Torna ai comandi principali
+            reply_markup=get_main_keyboard()
         )
     else:
         await update.message.reply_text(
             "❌ Richiesta annullata. Cosa vuoi fare ora?",
-            reply_markup=ReplyKeyboardMarkup([[KeyboardButton("🏖️ Chiedi Ferie"), KeyboardButton("📝 Chiedi Permesso")],[KeyboardButton("ℹ️ Aiuto")]], resize_keyboard=True)
+            reply_markup=get_main_keyboard()
         )
     context.user_data.clear()
     return ConversationHandler.END
@@ -236,10 +239,10 @@ async def ask_reason_permesso(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data['reason_permesso'] = None if reason.lower() == 'no' else reason
 
     summary = (
-        f" Riepilogo richiesta PERMESSO:\n"
-        f"Giorno: {context.user_data['date_permesso']}\n"
-        f"Orario/Descrizione: {context.user_data['hours_permesso']}\n"
-        f"Motivazione: {context.user_data['reason_permesso'] or 'Nessuna'}\n\n"
+        f"📋 Riepilogo richiesta PERMESSO:\n"
+        f"📅 Giorno: {context.user_data['date_permesso']}\n"
+        f"⏰ Orario/Descrizione: {context.user_data['hours_permesso']}\n"
+        f"💬 Motivazione: {context.user_data['reason_permesso'] or 'Nessuna'}\n\n"
         "Confermi l'invio? (Sì/No)"
     )
     keyboard = [[KeyboardButton("Sì 👍"), KeyboardButton("No 👎")]]
@@ -250,7 +253,7 @@ async def ask_reason_permesso(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def confirm_permesso(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Conferma e invia la richiesta di permesso."""
     user_response = update.message.text.lower()
-    if user_response == 'sì 👍' or user_response == 'sì' or user_response == 'si':
+    if user_response in ['sì 👍', 'sì', 'si']:
         user = update.effective_user
         request_id = generate_request_id()
         date_permesso = context.user_data['date_permesso']
@@ -277,12 +280,12 @@ async def confirm_permesso(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await send_to_manager(context, user.full_name or user.first_name, user.id, "Permesso", details, request_id)
         await update.message.reply_text(
             "✅ La tua richiesta di permesso è stata inviata con successo allo store manager!",
-            reply_markup=ReplyKeyboardMarkup([[KeyboardButton("🏖️ Chiedi Ferie"), KeyboardButton("📝 Chiedi Permesso")],[KeyboardButton("ℹ️ Aiuto")]], resize_keyboard=True)
+            reply_markup=get_main_keyboard()
         )
     else:
         await update.message.reply_text(
             "❌ Richiesta annullata. Cosa vuoi fare ora?",
-            reply_markup=ReplyKeyboardMarkup([[KeyboardButton("🏖️ Chiedi Ferie"), KeyboardButton("📝 Chiedi Permesso")],[KeyboardButton("ℹ️ Aiuto")]], resize_keyboard=True)
+            reply_markup=get_main_keyboard()
         )
     context.user_data.clear()
     return ConversationHandler.END
@@ -291,14 +294,19 @@ async def confirm_permesso(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 async def manager_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Gestisce l'approvazione o il rifiuto da parte del manager."""
     query = update.callback_query
-    await query.answer() # Risponde al callback per rimuovere il "loading" dal pulsante
+    await query.answer()
 
-    action, request_id = query.data.split("_")
-    
-    # Verifica che sia il manager a premere il pulsante (opzionale ma consigliato se il bot è in gruppi)
-    # if query.from_user.id != MANAGER_CHAT_ID:
-    #     await query.edit_message_text(text=f"{query.message.text}\n\n⚠️ Azione non permessa.")
-    #     return
+    try:
+        action, request_id = query.data.split("_", 1)
+    except ValueError:
+        logger.error(f"Formato callback_data non valido: {query.data}")
+        await query.edit_message_text(text=f"{query.message.text}\n\n⚠️ Errore nel formato del comando.")
+        return
+
+    # Verifica che sia il manager a premere il pulsante
+    if query.from_user.id != MANAGER_CHAT_ID:
+        await query.answer("⚠️ Non sei autorizzato a eseguire questa azione.", show_alert=True)
+        return
 
     if request_id in active_requests:
         request_details = active_requests[request_id]
@@ -308,30 +316,38 @@ async def manager_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         if action == "approve":
             active_requests[request_id]['status'] = 'approvata'
+            active_requests[request_id]['approved_at'] = datetime.now().isoformat()
             new_text = f"✅ Richiesta ({request_id}) di {request_type} da {original_user_name} APPROVATA."
-            await context.bot.send_message(
-                chat_id=original_user_id,
-                text=f"🎉 Buone notizie! La tua richiesta di {request_type.lower()} (ID: {request_id}) è stata APPROVATA!"
-            )
+            try:
+                await context.bot.send_message(
+                    chat_id=original_user_id,
+                    text=f"🎉 Buone notizie! La tua richiesta di {request_type.lower()} (ID: {request_id}) è stata APPROVATA!"
+                )
+            except Exception as e:
+                logger.error(f"Errore nell'invio del messaggio di approvazione all'utente {original_user_id}: {e}")
+                
         elif action == "deny":
             active_requests[request_id]['status'] = 'rifiutata'
+            active_requests[request_id]['denied_at'] = datetime.now().isoformat()
             new_text = f"❌ Richiesta ({request_id}) di {request_type} da {original_user_name} RIFIUTATA."
-            await context.bot.send_message(
-                chat_id=original_user_id,
-                text=f"😔 La tua richiesta di {request_type.lower()} (ID: {request_id}) è stata RIFIUTATA."
-            )
+            try:
+                await context.bot.send_message(
+                    chat_id=original_user_id,
+                    text=f"😔 La tua richiesta di {request_type.lower()} (ID: {request_id}) è stata RIFIUTATA."
+                )
+            except Exception as e:
+                logger.error(f"Errore nell'invio del messaggio di rifiuto all'utente {original_user_id}: {e}")
         else:
-            new_text = query.message.text + "\n\n⚠️ Azione sconosciuta."
+            await query.edit_message_text(text=f"{query.message.text}\n\n⚠️ Azione sconosciuta.")
             logger.warning(f"Azione sconosciuta '{action}' per request_id '{request_id}'")
-            return # Non salvare se l'azione non è riconosciuta
+            return
 
-        save_requests(active_requests) # Salva lo stato aggiornato
-        await query.edit_message_text(text=f"{query.message.text}\n\n--- ESITO: {new_text.splitlines()[-1]} ---") # Modifica il messaggio originale del manager
+        save_requests(active_requests)
+        await query.edit_message_text(text=f"{query.message.text}\n\n--- ESITO: {new_text.split(' da ')[0].split(') di ')[0]}) ---")
         logger.info(f"Azione '{action}' eseguita per la richiesta {request_id} da parte del manager.")
     else:
         await query.edit_message_text(text=f"{query.message.text}\n\n⚠️ Errore: Richiesta ID ({request_id}) non trovata o già processata.")
         logger.warning(f"Richiesta ID {request_id} non trovata durante l'azione del manager.")
-
 
 # --- Annullamento Conversazione ---
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -340,10 +356,18 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logger.info("L'utente %s ha annullato la conversazione.", user.first_name)
     await update.message.reply_text(
         "Operazione annullata. Dimmi pure se hai bisogno di altro!",
-        reply_markup=ReplyKeyboardMarkup([[KeyboardButton("🏖️ Chiedi Ferie"), KeyboardButton("📝 Chiedi Permesso")],[KeyboardButton("ℹ️ Aiuto")]], resize_keyboard=True)
+        reply_markup=get_main_keyboard()
     )
     context.user_data.clear()
     return ConversationHandler.END
+
+# --- Gestione messaggi non riconosciuti ---
+async def handle_unknown_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Gestisce messaggi non riconosciuti."""
+    await update.message.reply_text(
+        "Non ho capito. Usa i pulsanti qui sotto per interagire con me.",
+        reply_markup=get_main_keyboard()
+    )
 
 # --- Keep Alive per Replit (con Flask) ---
 app = Flask('')
@@ -352,12 +376,17 @@ app = Flask('')
 def home():
     return "Bot richieste ferie/permessi è attivo! 👍"
 
+@app.route('/health')
+def health_check():
+    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+
 def run_flask():
-  app.run(host='0.0.0.0', port=8080)
+    app.run(host='0.0.0.0', port=8080)
 
 def keep_alive():
     """Avvia un server web Flask in un thread separato per mantenere attivo il Repl."""
     t = Thread(target=run_flask)
+    t.daemon = True
     t.start()
 
 # --- Main ---
@@ -367,8 +396,7 @@ def main() -> None:
         logger.critical("TELEGRAM_BOT_TOKEN non trovato nelle variabili d'ambiente! Il bot non può partire.")
         return
     if not MANAGER_CHAT_ID:
-        logger.critical("MANAGER_CHAT_ID non trovato o non valido! Le notifiche al manager non funzioneranno correttamente.")
-        # Potresti decidere di non avviare il bot o di farlo funzionare con funzionalità limitate.
+        logger.warning("MANAGER_CHAT_ID non trovato o non valido! Le notifiche al manager non funzioneranno correttamente.")
 
     # Crea l'applicazione del bot
     application = Application.builder().token(BOT_TOKEN).build()
@@ -397,12 +425,16 @@ def main() -> None:
         fallbacks=[CommandHandler("annulla", cancel), MessageHandler(filters.Regex("^Annulla$"), cancel)],
     )
 
+    # Aggiungi gli handler
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.Regex("^ℹ️ Aiuto$"), help_command))
-    application.add_handler(CommandHandler("help", help_command)) # Alias per /help
+    application.add_handler(CommandHandler("help", help_command))
     application.add_handler(conv_handler_ferie)
     application.add_handler(conv_handler_permesso)
-    application.add_handler(CallbackQueryHandler(manager_action, pattern="^(approve_|deny_)")) # Gestisce i pulsanti del manager
+    application.add_handler(CallbackQueryHandler(manager_action, pattern="^(approve_|deny_)"))
+    
+    # Handler per messaggi non riconosciuti (deve essere l'ultimo)
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_unknown_message))
 
     # Avvia il server Flask per Replit
     keep_alive()
@@ -410,8 +442,12 @@ def main() -> None:
 
     # Avvia il bot
     logger.info("Avvio del bot...")
-    application.run_polling()
-
+    try:
+        application.run_polling(drop_pending_updates=True)
+    except KeyboardInterrupt:
+        logger.info("Bot fermato dall'utente.")
+    except Exception as e:
+        logger.error(f"Errore durante l'esecuzione del bot: {e}")
 
 if __name__ == "__main__":
     main()
