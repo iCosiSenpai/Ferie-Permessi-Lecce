@@ -74,6 +74,7 @@ ENABLE_WEB_SERVER = os.environ.get('ENABLE_WEB_SERVER', 'true').lower() == 'true
 Path(DATA_DIR).mkdir(parents=True, exist_ok=True)
 DB_FILE = os.path.join(DATA_DIR, "requests_data.json")
 
+logger.info(f"🚀 Avvio del bot Telegram per richieste ferie/permessi...{TELEGRAM_BOT_TOKEN}")
 logger.info(f"📁 Directory dati: {DATA_DIR}")
 logger.info(f"💽 File database: {DB_FILE}")
 logger.info(f"🌐 Server web: {'Abilitato' if ENABLE_WEB_SERVER else 'Disabilitato'}")
