@@ -164,12 +164,12 @@ async def send_to_manager(context: ContextTypes.DEFAULT_TYPE, user_name: str, us
         await context.bot.send_message(
             chat_id=MANAGER_CHAT_ID, text=message_text, reply_markup=reply_markup
         )
-        logger.info(f"📨 Notifica inviata al manager per la richiesta {request_id}")
+        logger.info(f"📨 Notifica inviata allo Store Manager per la richiesta {request_id}")
     except Exception as e:
-        logger.error(f"❌ Errore nell'invio della notifica al manager: {e}")
+        logger.error(f"❌ Errore nell'invio della notifica allo Store Manager: {e}")
         await context.bot.send_message(
             chat_id=user_id,
-            text="⚠️ Si è verificato un errore tecnico nell'invio della notifica al manager. Riprova più tardi o contatta l'amministrazione."
+            text="⚠️ Merda non dovrebbe succedere ma si tratta di un errore critico. Riprova più tardi o contatta il best tecnico ever."
         )
 
 def get_main_keyboard():
@@ -185,7 +185,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Saluta l'utente e mostra i pulsanti per le richieste."""
     user = update.effective_user
     welcome_message = (
-        f"Weeee {user.first_name}! 👋 Hai bisogno di staccare la spina o hai degli impegni improrogabili? Chiedi e ti sarà dato bro.\n\n"
+        f"Bella per te, {user.first_name}-san! 👋 Hai bisogno di staccare la spina o hai degli impegni che non puoi rifiutare? Chiedi e (forse) ti sarà dato bro.\n\n"
         "Dimmi, che minchia vuoi?"
     )
     await update.message.reply_text(welcome_message, reply_markup=get_main_keyboard())
@@ -193,13 +193,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Mostra un messaggio di aiuto."""
     help_text = (
-        "🤖 **Come usare il bot:**\n"
+        "🤖 **Ti serve davvero aiuto? Incredibile ma vabbeh.**\n"
         "Premi '🏖️ Chiedi Ferie' per avviare una richiesta di ferie.\n"
         "Premi '📝 Chiedi Permesso' per avviare una richiesta di permesso.\n\n"
-        "Segui le istruzioni e rispondi alle domande del bot.\n"
-        "Lo store manager riceverà una notifica e potrà approvare o rifiutare la tua richiesta.\n"
+        "Segui le istruzioni (difficilissimo) e rispondi alle domande del bot.\n"
+        "Il nostro Stronz Manager ❤️ riceverà una notifica e potrà approvare o rifiutare la tua richiesta.\n"
         "Sarai avvisato dell'esito.\n\n"
-        "Puoi annullare una richiesta in qualsiasi momento digitando /annulla."
+        "Se hai sbagliato qualcosa o semplicemente ti stai solo sgrillettando sul mio bot, puoi sempre tornare indietro digitando /annulla."
     )
     await update.message.reply_text(help_text, parse_mode='Markdown')
 
@@ -507,7 +507,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.message.from_user
     logger.info("🔄 L'utente %s ha annullato la conversazione.", user.first_name)
     await update.message.reply_text(
-        "Operazione annullata. Dimmi pure se hai bisogno di altro!",
+        "Ho annullato tutto. Vedo che hai del tempo da perdere. Vai a lavorare!",
         reply_markup=get_main_keyboard()
     )
     context.user_data.clear()
