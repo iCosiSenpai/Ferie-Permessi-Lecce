@@ -542,4 +542,3 @@ def main() -> None:
 
     # Avvia il bot
     logger.info("✅ Bot avviato con successo!")
-    try
